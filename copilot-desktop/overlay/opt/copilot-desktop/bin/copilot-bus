@@ -1,0 +1,30 @@
+#!/bin/bash
+# Runs inside dbus-run-session. Creates or unlocks gnome-keyring's "login" keyring on this session bus so Chromium
+# has a Secret Service and the sign-in survives restarts, then runs Chromium in app-mode. The keyring password is a
+# fixed string: the keyring file lives on the sandbox's own disk, which is no weaker than Chromium's plain-text
+# fallback, but it is not a secret store against anything that can read the sandbox. (An empty password does not
+# work: gnome-keyring then creates no default collection.)
+if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+  if printf '%s' 'sandbox-keyring' | gnome-keyring-daemon --login --components=secrets >/dev/null 2>&1; then
+    echo "copilot-bus: gnome-keyring 'login' keyring ready" >&2
+  else
+    echo "copilot-bus: warning: gnome-keyring-daemon --login failed; the sign-in may not persist across restarts" >&2
+  fi
+else
+  echo "copilot-bus: warning: gnome-keyring-daemon not found; the sign-in will not persist across restarts" >&2
+fi
+
+url=${COPILOT_URL:-https://copilot.microsoft.com}
+
+# The sandbox has no GPU: without the software-rendering flags Chromium's GPU process crashes and the window stays
+# blank. --no-sandbox because Chromium's own sandbox needs user namespaces the container does not grant.
+# --password-store: no desktop environment is detected, so Chromium would pick its plain-text backend.
+# --disable-quic: the sandbox proxy only carries TCP, so QUIC attempts are blocked and logged on every connection.
+exec chromium \
+  --app="$url" \
+  --user-data-dir="${HOME}/.config/copilot-desktop" \
+  --ozone-platform=wayland \
+  --no-sandbox --disable-gpu --disable-gpu-compositing --disable-dev-shm-usage \
+  --no-proxy-server --password-store=gnome-libsecret --disable-quic \
+  --no-first-run --no-default-browser-check \
+  "$@"
