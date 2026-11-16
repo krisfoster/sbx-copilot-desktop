@@ -1,0 +1,67 @@
+#!/bin/bash
+# Runs Microsoft Copilot in its own window inside a Docker sandbox (sbx).
+#
+#   ./run-copilot [--recreate] [WORKSPACE_PATH]
+#
+# Creates the sandbox on first use (with a display), then attaches so the Copilot window appears. Sign in in that
+# window; the login is kept across restarts. Without WORKSPACE_PATH the sandbox has no host bind mount.
+#
+#   --recreate   remove the existing sandbox first (needed after editing the kit: a sandbox keeps the kit it was
+#                created with). Deletes the sandbox's saved sign-in.
+#
+# Environment:
+#   COPILOT_KIT      kit to use: a local directory (built from source) or an OCI/ZIP/git reference.
+#                    Default: ./copilot-desktop next to this script.
+#   COPILOT_SANDBOX  sandbox name (default: copilot-desktop).
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+NAME="${COPILOT_SANDBOX:-copilot-desktop}"
+KIT="${COPILOT_KIT:-$HERE/copilot-desktop}"
+MIN_SBX="0.45"
+
+RECREATE=0
+WORKSPACE=()
+for arg in "$@"; do
+  case "$arg" in
+    --recreate) RECREATE=1 ;;
+    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --*) echo "error: unknown option $arg" >&2; exit 2 ;;
+    *) WORKSPACE+=("$arg") ;;
+  esac
+done
+[ "${#WORKSPACE[@]}" -le 1 ] || { echo "error: at most one workspace path" >&2; exit 2; }
+
+command -v sbx >/dev/null 2>&1 || { echo "error: sbx not found on PATH (install Docker Sandboxes)" >&2; exit 1; }
+
+# Compare MAJOR.MINOR of `sbx version` ("v0.54.0-rc4 ...") against MIN_SBX.
+have="$(sbx version 2>/dev/null | sed -nE 's/.*v([0-9]+)\.([0-9]+).*/\1.\2/p' | head -1)"
+if [ -n "$have" ]; then
+  hmaj="${have%%.*}"; hmin="${have##*.}"; mmaj="${MIN_SBX%%.*}"; mmin="${MIN_SBX##*.}"
+  if [ "$hmaj" -lt "$mmaj" ] || { [ "$hmaj" -eq "$mmaj" ] && [ "$hmin" -lt "$mmin" ]; }; then
+    echo "error: sbx $have is too old; kit schema v3 needs $MIN_SBX or later" >&2
+    exit 1
+  fi
+fi
+
+if [ -d "$KIT" ]; then
+  KIT="$(cd "$KIT" && pwd)"
+  command -v docker >/dev/null 2>&1 || { echo "error: docker not found; it is needed to build the kit from $KIT" >&2; exit 1; }
+  docker info >/dev/null 2>&1 || { echo "error: the Docker engine is not running; it is needed to build the kit from $KIT" >&2; exit 1; }
+fi
+
+exists() { sbx ls 2>/dev/null | grep -q "^${NAME}[[:space:]]"; }
+
+if [ "$RECREATE" = 1 ] && exists; then
+  echo "== removing sandbox '$NAME'"
+  sbx rm --force "$NAME" >/dev/null
+fi
+
+if ! exists; then
+  echo "== creating sandbox '$NAME' (kit: $KIT)"
+  # ${arr[@]+...} guards empty arrays: macOS's bash 3.2 errors on "${arr[@]}" under set -u.
+  sbx create --display --name "$NAME" "$KIT" ${WORKSPACE[@]+"${WORKSPACE[@]}"} >/dev/null
+fi
+
+echo "== attaching; the Copilot window will appear. Close it or press Ctrl-C to stop."
+exec sbx run "$NAME"

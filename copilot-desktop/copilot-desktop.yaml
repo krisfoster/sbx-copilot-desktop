@@ -1,0 +1,57 @@
+# syntax=docker/sandbox-kit:3
+#
+# Microsoft Copilot in its own window, inside a Docker sandbox.
+#
+# There is no official Linux build of the Microsoft Copilot desktop app, so this workload runs the Copilot web app
+# in Chromium app-mode (no tabs, no address bar) on the sandbox's Wayland display:
+#
+#   sbx create --display --name copilot ./copilot-desktop && sbx run copilot
+#
+# or use ./run-copilot from the repository root. The login survives restarts: a private D-Bus session runs
+# gnome-keyring so Chromium can store its credentials (--password-store=gnome-libsecret).
+schemaVersion: "3"
+kind: workload
+displayName: Microsoft Copilot Desktop
+description: >-
+  Runs the Microsoft Copilot web app in a standalone Chromium app-mode window on the sandbox's Wayland display
+  (sbx run --display), with the sign-in kept across restarts. Supports personal and work or school accounts.
+version: "0.1.0"
+licenses: [Apache-2.0]
+
+provides: ["copilot-desktop@0.1.0"]
+
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+
+  # Default-deny egress. This is a starting list for copilot.microsoft.com plus the Microsoft sign-in hosts for
+  # personal (login.live.com) and work or school (login.microsoftonline.com) accounts. A wildcard matches exactly
+  # one label. Tighten or extend it from `sbx policy log` after a real sign-in (see README, "Network").
+  # Nothing is allowed at install time: the Chromium packages are installed while the image is built.
+  - type: com.docker.sandbox/network-policy@1
+    config:
+      runtime:
+        allow:
+          - copilot.com
+          - copilot.microsoft.com
+          - "*.copilot.microsoft.com"
+          - "*.microsoft.com"
+          - "*.bing.com"
+          - "*.msn.com"
+          - login.live.com
+          - account.live.com
+          - "*.live.com"
+          - login.microsoftonline.com
+          - "*.microsoftonline.com"
+          - "*.msauth.net"
+          - "*.msftauth.net"
+          - "*.office.com"
+          - "*.office.net"
+          - m365.cloud.microsoft
+          - "*.cloud.microsoft"
+          - "*.svc.cloud.microsoft"
+          - "*.m365.cloud.microsoft"
+          - "*.svc.m365.cloud.microsoft"
+          - "*.teams.microsoft.com"
+          - "*.static.microsoft"
+          - "*.onecdn.static.microsoft"
+          - "*.azureedge.net"

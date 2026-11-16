@@ -1,0 +1,22 @@
+#!/bin/bash
+# Entrypoint. Waits for the sandbox's Wayland display (sbx run --display), then runs Copilot under a private D-Bus
+# session so gnome-keyring can provide the Secret Service Chromium uses to keep the sign-in across restarts.
+socket=${SANDBOX_WAYLAND_SOCKET:-/run/display/wayland-0}
+for _ in $(seq 1 120); do
+  [ -S "$socket" ] && break
+  sleep 1
+done
+if [ ! -S "$socket" ]; then
+  echo "copilot-session: no Wayland socket at $socket after 120s; was the sandbox created with --display?" >&2
+  exit 1
+fi
+
+command -v dbus-run-session >/dev/null 2>&1 || {
+  echo "copilot-session: dbus-run-session not found; cannot start the keyring session" >&2
+  exit 1
+}
+
+export WAYLAND_DISPLAY="$socket"
+unset DISPLAY
+
+exec dbus-run-session -- /opt/copilot-desktop/bin/copilot-bus "$@"
